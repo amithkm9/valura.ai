@@ -1,7 +1,6 @@
-# ===== 2. compliance_checker.py =====
 """
-Compliance Checker Module
-Validates documents against ADGM requirements
+Compliance Checker Module - Enhanced Version
+Validates documents against ADGM requirements with improved accuracy
 """
 
 class ComplianceChecker:
@@ -48,106 +47,220 @@ class ComplianceChecker:
                 ]
             }
         }
+        
+        # Document type mappings for better matching
+        self.document_type_mappings = {
+            "articles_of_association": "Articles of Association",
+            "board_resolution": "Board Resolution",
+            "shareholder_resolution": "Shareholder Resolution",
+            "incorporation_application": "Incorporation Application Form",
+            "register": "Register of Members and Directors",
+            "memorandum": "Memorandum of Association",
+            "ubo_declaration": "UBO Declaration Form",
+            "employment_contract": "Employment Contract",
+            "license_application": "License Application Form",
+            "business_plan": "Business Plan",
+            "compliance_manual": "Compliance Manual"
+        }
     
-    def identify_process_type(self, document_names: list[str]) -> str:
-        """Identify which ADGM process based on uploaded documents"""
-        doc_names_lower = [name.lower() for name in document_names]
+    def identify_process_type(self, document_types: list[str]) -> str:
+        """Identify which ADGM process based on document types"""
+        
+        # Convert document types to standard names
+        standard_names = []
+        for doc_type in document_types:
+            # Check if it's a document type identifier
+            for key, value in self.document_type_mappings.items():
+                if key in doc_type.lower() or doc_type in value:
+                    standard_names.append(value)
+                    break
         
         # Check for incorporation documents
-        incorporation_keywords = ["articles", "shareholder resolution", "board resolution", "incorporation", "register"]
-        incorporation_matches = sum(1 for keyword in incorporation_keywords 
-                                   if any(keyword in name for name in doc_names_lower))
+        incorporation_docs = self.adgm_requirements["company_incorporation"]["required"]
+        incorporation_matches = sum(1 for doc in standard_names if doc in incorporation_docs)
         
         # Check for licensing documents
-        licensing_keywords = ["license", "business plan", "compliance manual", "financial"]
-        licensing_matches = sum(1 for keyword in licensing_keywords 
-                                if any(keyword in name for name in doc_names_lower))
+        licensing_docs = self.adgm_requirements["licensing"]["required"]
+        licensing_matches = sum(1 for doc in standard_names if doc in licensing_docs)
         
         # Check for employment documents
-        employment_keywords = ["employment", "contract", "salary", "job description"]
-        employment_matches = sum(1 for keyword in employment_keywords 
-                                if any(keyword in name for name in doc_names_lower))
+        employment_docs = self.adgm_requirements["employment"]["required"]
+        employment_matches = sum(1 for doc in standard_names if doc in employment_docs)
         
         # Return the process with most matches
-        if incorporation_matches >= licensing_matches and incorporation_matches >= employment_matches:
+        if incorporation_matches > 0:
             return "company_incorporation"
-        elif licensing_matches >= employment_matches:
+        elif licensing_matches > employment_matches:
             return "licensing"
-        else:
+        elif employment_matches > 0:
             return "employment"
+        else:
+            return "company_incorporation"  # Default to most common
     
-    def check_missing_documents(self, uploaded_docs: list[str], process_type: str) -> dict:
-        """Check for missing required documents"""
+    def check_missing_documents(self, uploaded_docs: list[str], process_type: str, 
+                               document_types: list[str] = None) -> dict:
+        """Enhanced missing document check using document types"""
+        
         if process_type not in self.adgm_requirements:
             return {
                 "process": "unknown",
                 "missing_documents": [],
                 "uploaded_count": len(uploaded_docs),
-                "required_count": 0
+                "required_count": 0,
+                "present_documents": []
             }
         
         required_docs = self.adgm_requirements[process_type]["required"]
-        uploaded_lower = [doc.lower() for doc in uploaded_docs]
+        present_docs = []
+        missing_docs = []
         
-        missing = []
-        for required in required_docs:
-            # Check if any uploaded document matches the required one
-            found = False
-            for uploaded in uploaded_lower:
-                if any(keyword in uploaded for keyword in required.lower().split()):
-                    found = True
-                    break
+        # If we have document types, use them for more accurate matching
+        if document_types:
+            standard_names = []
+            for doc_type in document_types:
+                mapped_name = self.document_type_mappings.get(doc_type)
+                if mapped_name:
+                    standard_names.append(mapped_name)
             
-            if not found:
-                missing.append(required)
+            # Check which required documents are present
+            for required in required_docs:
+                if required in standard_names:
+                    present_docs.append(required)
+                else:
+                    missing_docs.append(required)
+        else:
+            # Fallback to filename matching
+            uploaded_lower = [doc.lower() for doc in uploaded_docs]
+            
+            for required in required_docs:
+                found = False
+                required_keywords = required.lower().split()
+                
+                for uploaded in uploaded_lower:
+                    # Check if key terms from required doc name are in uploaded filename
+                    matches = sum(1 for keyword in required_keywords 
+                                if keyword in uploaded and len(keyword) > 3)
+                    if matches >= len(required_keywords) * 0.5:  # At least 50% match
+                        found = True
+                        break
+                
+                if found:
+                    present_docs.append(required)
+                else:
+                    missing_docs.append(required)
         
         return {
             "process": process_type,
-            "missing_documents": missing,
+            "missing_documents": missing_docs,
+            "present_documents": present_docs,
             "uploaded_count": len(uploaded_docs),
             "required_count": len(required_docs)
         }
     
+    def calculate_compliance_score(self, issues: list[dict], doc_check: dict) -> tuple[int, str]:
+        """Calculate overall compliance score and status"""
+        
+        # Scoring weights
+        weights = {
+            "critical": -20,
+            "high": -10,
+            "medium": -5,
+            "low": -2,
+            "info": 0
+        }
+        
+        # Start with perfect score
+        score = 100
+        
+        # Deduct for issues
+        for issue in issues:
+            severity = issue.get("severity", "low")
+            score += weights.get(severity, 0)
+        
+        # Deduct for missing documents (10 points each)
+        missing_count = len(doc_check.get("missing_documents", []))
+        score -= missing_count * 10
+        
+        # Ensure score is between 0 and 100
+        score = max(0, min(100, score))
+        
+        # Determine status
+        if score >= 90:
+            status = "PASS - Ready for submission"
+        elif score >= 70:
+            status = "REVIEW REQUIRED - Minor corrections needed"
+        elif score >= 50:
+            status = "FAIL - Significant corrections required"
+        else:
+            status = "CRITICAL - Major non-compliance detected"
+        
+        return score, status
+    
     def generate_recommendations(self, issues: list[dict], doc_check: dict) -> list[str]:
-        """Generate compliance recommendations"""
+        """Generate comprehensive compliance recommendations"""
         recommendations = []
         
-        # Add recommendations for missing documents
+        # Priority 1: Missing documents
         if doc_check.get("missing_documents"):
+            missing_list = ", ".join(doc_check['missing_documents'])
             recommendations.append(
-                f"📄 Upload missing documents: {', '.join(doc_check['missing_documents'])}"
+                f"📄 **URGENT**: Upload missing documents: {missing_list}"
             )
         
-        # Count issues by severity
-        high_severity = sum(1 for issue in issues if issue.get("severity") == "high")
-        medium_severity = sum(1 for issue in issues if issue.get("severity") == "medium")
+        # Priority 2: Critical and high-severity issues
+        critical_count = sum(1 for issue in issues if issue.get("severity") == "critical")
+        high_count = sum(1 for issue in issues if issue.get("severity") == "high")
         
-        if high_severity > 0:
+        if critical_count > 0:
             recommendations.append(
-                f"🔴 Address {high_severity} high-severity issues before submission"
+                f"🚫 **CRITICAL**: Fix {critical_count} critical issues immediately"
             )
         
-        if medium_severity > 0:
+        if high_count > 0:
             recommendations.append(
-                f"🟡 Review {medium_severity} medium-severity issues for compliance"
+                f"🔴 **HIGH PRIORITY**: Address {high_count} high-severity issues before submission"
             )
         
-        # Add specific recommendations based on common issues
-        issue_types = set(issue.get("issue", "").split(":")[0] for issue in issues)
+        # Priority 3: Common issue patterns
+        issue_categories = {}
+        for issue in issues:
+            category = issue.get("issue", "").split(":")[0]
+            if category not in issue_categories:
+                issue_categories[category] = 0
+            issue_categories[category] += 1
         
-        if "Incorrect jurisdiction" in " ".join(issue_types):
+        # Specific recommendations based on issue patterns
+        if "Incorrect jurisdiction" in issue_categories:
             recommendations.append(
                 "⚖️ Update all jurisdiction references to 'Abu Dhabi Global Market (ADGM)'"
             )
         
-        if "Weak language" in " ".join(issue_types):
+        if "Weak language" in issue_categories:
             recommendations.append(
-                "📝 Replace weak language with binding terms (shall, must, will)"
+                "📝 Replace weak language (may, might, could) with binding terms (shall, must, will)"
             )
         
-        if "Missing" in " ".join(issue_types):
+        if "Missing" in " ".join(issue_categories.keys()):
             recommendations.append(
                 "➕ Add all required sections as per ADGM templates"
+            )
+        
+        if "signature" in " ".join(issue_categories.keys()).lower():
+            recommendations.append(
+                "✍️ Complete all signature blocks with names, titles, and dates"
+            )
+        
+        # Priority 4: Medium and low severity issues
+        medium_count = sum(1 for issue in issues if issue.get("severity") == "medium")
+        if medium_count > 0:
+            recommendations.append(
+                f"🟡 Review {medium_count} medium-severity issues for better compliance"
+            )
+        
+        # Add positive feedback if applicable
+        if not doc_check.get("missing_documents") and high_count == 0 and critical_count == 0:
+            recommendations.append(
+                "✅ Documents are largely compliant - review minor issues and submit"
             )
         
         return recommendations

@@ -1,13 +1,27 @@
 # requirements.txt
-gradio
+# Core UI Framework
+streamlit
+streamlit-extras
+
+# Document Processing
 python-docx
+
+# LLM and RAG Components
 langchain
 langchain-community
-chromadb
-sentence-transformers
 ollama
-numpy
-faiss-cpu
-tiktoken
+
+# Vector Database
+chromadb
+
+# Embeddings and ML
+sentence-transformers
 torch
 transformers
+numpy
+faiss-cpu
+
+# Utilities
+tiktoken
+pandas
+plotly
