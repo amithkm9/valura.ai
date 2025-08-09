@@ -1,0 +1,12 @@
+# Python cache
+__pycache__/
+
+# Virtual environment
+venv/
+
+# Local database and outputs
+chroma_db/
+output/
+
+# OS-specific files
+.DS_Store
